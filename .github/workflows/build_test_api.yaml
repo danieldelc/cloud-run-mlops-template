@@ -1,0 +1,28 @@
+name: Build and test
+
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ dev ]
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Python flake8 Lint
+        uses: py-actions/flake8@v2.2.0
+      - name: Python black formatter check
+        uses: psf/black@stable
+        with:
+          options: "--line-length=79"
+      - name: Build docker
+        run: | 
+          docker compose up -d
+      - name: Test docker
+        run: | 
+          docker exec api pytest
+          

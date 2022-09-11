@@ -1,0 +1,53 @@
+name: Build and deploy to Cloud Run
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    uses: ./.github/workflows/build_test_api.yaml
+  deploy:
+    needs: [test]
+    permissions:
+      contents: "read"
+      id-token: "write"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: "Export env vars from file"
+        run: cat ./.github/workflows/data/.env >> $GITHUB_ENV
+      - name: Google Auth
+        id: auth
+        uses: "google-github-actions/auth@v0"
+        with:
+          token_format: "access_token"
+          workload_identity_provider: projects/${{ env.PROJECT_NR }}/locations/global/workloadIdentityPools/${{ env.SERVICE }}/providers/${{ env.SERVICE }} # "${{ env.WIF_PROVIDER }}"
+          service_account: ${{ env.SERVICE }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com # "${{ env.WIF_SERVICE_ACCOUNT }}"
+      - name: Docker Auth
+        id: docker-auth
+        uses: "docker/login-action@v2"
+        with:
+          username: "oauth2accesstoken"
+          password: "${{ steps.auth.outputs.access_token }}"
+          registry: "${{ env.REGION }}-docker.pkg.dev"
+      - name: Build Container
+        run: |-
+          docker build --build-arg ENVIRONMENT=prod -t "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}" ./
+      - name: Push Container
+        run: |-
+          docker push "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}"
+      # Create Cloud Run YAML Service specification from template
+      # envsubst is replacing template variables and creating a YAML Service specification with the new image tag
+      - name: Create Service declaration
+        run: |-
+          export IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}"
+          envsubst < ./.github/workflows/data/cloudrun.service.template.yaml > service.yaml
+      # Deploy Cloud Run Service from the YAML Service specification
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v0
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          metadata: service.yaml

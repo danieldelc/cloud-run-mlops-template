@@ -1,0 +1,27 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ${SERVICE}
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '4'
+    spec:
+      containerConcurrency: 4
+      containers:
+      - image: ${IMAGE}
+        env:
+        - name: ENVIRONMENT
+          value: prod
+        - name: IMAGE
+          value: ${IMAGE}    
+        - name: PROJECT_ID
+          value: ${PROJECT_ID}    
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+  traffic:
+  - percent: 100
+    latestRevision: true

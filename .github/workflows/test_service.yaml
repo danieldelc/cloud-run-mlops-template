@@ -1,0 +1,47 @@
+name: Test Cloud Run service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yaml
+  test:
+    needs: [deploy]
+    permissions:
+      contents: "read"
+      id-token: "write"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: "Export env vars from file"
+        run: cat ./.github/workflows/data/.env >> $GITHUB_ENV
+      - name: Google Auth
+        id: auth
+        uses: "google-github-actions/auth@v0"
+        with:
+          token_format: "access_token"
+          workload_identity_provider: projects/${{ env.PROJECT_NR }}/locations/global/workloadIdentityPools/${{ env.SERVICE }}/providers/${{ env.SERVICE }} # "${{ env.WIF_PROVIDER }}"
+          service_account: ${{ env.SERVICE }}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com # "${{ env.WIF_SERVICE_ACCOUNT }}"
+      - name: "Set up Cloud SDK"
+        uses: "google-github-actions/setup-gcloud@v0"
+      - name: "Allow public access"
+        run: 'gcloud run services add-iam-policy-binding ${{ env.SERVICE }} --member="allUsers" --role="roles/run.invoker" --region=${{ env.REGION }}'
+      - name: "Get Service URL"
+        run: |
+          echo "SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE }} --region=${{ env.REGION }} --format="value(status.url)" -q)" >> $GITHUB_ENV
+      - name: "Test /version endpoint"
+        run: curl -s -S ${{ env.SERVICE_URL }}/version
+      - name: "Test /predict endpoint"
+        run: |
+          curl -s -S -d '' ${{ env.SERVICE_URL }}/predict?${{ env.SAMPLE_URL_PARAMS }}
+          sleep 5
+          curl -s -S -d '' ${{ env.SERVICE_URL }}/predict?${{ env.SAMPLE_URL_PARAMS }}
+      - name: "Test /monitor endpoint (might be a delay in the logs sinking)"
+        run: |
+          sleep 10
+          curl -s -S ${{ env.SERVICE_URL }}/monitor
